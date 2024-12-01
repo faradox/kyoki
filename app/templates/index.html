@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>KYOKI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+</head>
+<body>
+    <div class="menu" id="menu">
+        <h1>KYOKI</h1>
+        <div class="name-input-container">
+            <input type="text" id="playerName" maxlength="20" placeholder="Enter your name">
+        </div>
+        <div class="menu-buttons">
+            <button id="arenaButton" onclick="startArena()">Arena</button>
+            <button id="vsBattleButton" onclick="startVSBattle()">VS Battle</button>
+            <button id="settingsButton" disabled>Settings</button>
+        </div>
+    </div>
+    
+    <div class="vs-battle-container" id="vsBattleContainer">
+        <button class="back-button" onclick="backToMenu()">← Back</button>
+        <h2>VS Battle Mode</h2>
+        <p>Your battle code is:</p>
+        <div class="battle-code" id="battleCode">...</div>
+        <p>Share this code with your opponent or enter their code below:</p>
+        <input type="text" 
+               class="code-input" 
+               id="codeInput" 
+               maxlength="6" 
+               placeholder="Enter code"
+               oninput="this.value = this.value.toUpperCase()"
+               onkeyup="handleCodeInput(event)">
+        <div class="error-message" id="errorMessage"></div>
+    </div>
+    
+    <div class="game-container" id="gameContainer">
+        <div class="loading" id="loading">Finding opponent...</div>
+        <div id="gameBoard" style="display: none;">
+            <div class="status" id="status"></div>
+            <div class="battle-area" id="battleArea">
+                <div class="player-area">
+                    <div class="player-name">Your Play</div>
+                    <div class="played-card" id="yourPlay"></div>
+                </div>
+                <div class="player-area">
+                    <div id="opponentName" class="player-name">Opponent's Play</div>
+                    <div class="played-card" id="opponentPlay"></div>
+                </div>
+            </div>
+            <div class="cards" id="cards"></div>
+            <div class="overlay" id="overlay"></div>
+            <div class="rematch-dialog" id="rematchDialog">
+                <div class="result-text" id="resultText"></div>
+                <h2>Rematch?</h2>
+                <div class="rematch-buttons">
+                    <button class="rematch-button yes" onclick="handleRematch(true)">Yes</button>
+                    <button class="rematch-button no" onclick="handleRematch(false)">No</button>
+                </div>
+                <p id="rematchStatus"></p>
+            </div>
+        </div>
+        <div class="celebration-container"></div>
+    </div>
+    <script src="/static/celebration.js"></script>
+    <script>
+        let ws;
+        let playerCards = [];
+        let playerNum = null;
+        let gameActive = true;
+        let playerName = '';
+        let opponentName = '';
+
+        function getWebSocketUrl(path) {
+            const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            return `${scheme}://${window.location.host}${path}`;
+        }
+
+        function displayCards(cards) {
+            const cardsContainer = document.getElementById('cards');
+            cardsContainer.innerHTML = '';
+            
+            cards.forEach((cardType, index) => {
+                const card = createCard(cardType, index);
+                cardsContainer.appendChild(card);
+            });
+        }
+
+        function createCard(cardType, index, faceDown = false) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            if (faceDown) card.classList.add('flipped');
+            
+            card.innerHTML = `
+                <div class="card-inner">
+                    <div class="card-back">
+                        <span>?</span>
+                    </div>
+                    <div class="card-front">
+                        <img src="/static/${cardType.toLowerCase()}.avif" alt="${cardType}">
+                    </div>
+                </div>
+            `;
+            
+            if (index >= 0) {
+                card.addEventListener('click', () => {
+                    playCard(cardType, index, card);
+                });
+            }
+            
+            return card;
+        }
+
+        function playCard(cardType, index, cardElement) {
+            // Remove click handlers from all cards
+            document.querySelectorAll('.cards .card').forEach(card => {
+                card.style.pointerEvents = 'none';
+            });
+            
+            // Clone the card and add it to the battle area
+            const yourPlay = document.getElementById('yourPlay');
+            const battleCard = cardElement.cloneNode(true);
+            battleCard.classList.add('battle-card');
+            yourPlay.innerHTML = '';
+            yourPlay.appendChild(battleCard);
+            
+            // Remove the original card
+            cardElement.remove();
+            
+            // Send the play to the server
+            ws.send(JSON.stringify({
+                type: 'PLAY_CARD',
+                card: cardType,
+                index: index
+            }));
+
+            updateStatus('Waiting for opponent...');
+        }
+
+        function displayInitialCards(cards) {
+            const cardsContainer = document.getElementById('cards');
+            cardsContainer.innerHTML = '';
+            
+            // Create all cards face down initially
+            cards.forEach((cardType, index) => {
+                const card = createCard(cardType, index, false);
+                cardsContainer.appendChild(card);
+            });
+            
+            // Reveal cards one by one
+            cards.forEach((_, index) => {
+                setTimeout(() => {
+                    const card = cardsContainer.children[index];
+                    card.classList.remove('flipped');
+                    card.classList.add('revealing');
+                }, index * 200);
+            });
+        }
+
+        function handleOpponentPlay() {
+            const opponentPlay = document.getElementById('opponentPlay');
+            opponentPlay.innerHTML = '';
+            const faceDownCard = createCard('back', -1, false);
+            faceDownCard.classList.add('battle-card');
+            opponentPlay.appendChild(faceDownCard);
+        }
+
+        function handleRoundResult(data) {
+            // Flip opponent's card
+            const opponentPlay = document.getElementById('opponentPlay');
+            const opponentCard = createCard(playerNum === 1 ? data.p2_card : data.p1_card, -1, false);
+            opponentCard.classList.add('battle-card');
+            opponentPlay.innerHTML = '';
+            opponentPlay.appendChild(opponentCard);
+            
+            // Determine winner and apply animations
+            setTimeout(() => {
+                const yourCard = document.getElementById('yourPlay').querySelector('.card');
+                const theirCard = opponentPlay.querySelector('.card');
+                const isWinner = ((data.result === 'P1_WINS' && playerNum === 1) || (data.result === 'P2_WINS' && playerNum === 2));
+                
+                if (isWinner) {
+                    yourCard.classList.add('winning');
+                    theirCard.classList.add('losing');
+                } else if (data.result === 'STALEMATE') {
+                    yourCard.classList.add('stalemate');
+                    theirCard.classList.add('stalemate');
+                } else { // loser
+                    yourCard.classList.add('losing');
+                    theirCard.classList.add('winning');
+                } 
+
+                // Clear battle area and update cards after animations
+                setTimeout(() => {
+                    document.getElementById('yourPlay').innerHTML = '';
+                    opponentPlay.innerHTML = '';
+                    if (data.game_state === 'FINISHED') {
+                        gameActive = false;
+                        const resultText = document.getElementById('resultText');
+                        resultText.textContent = isWinner ? "You Won!" : "You Lost!";
+                        resultText.classList.toggle('lost', !isWinner);
+                        if (isWinner) {
+                            window.gameCelebration.start();
+                            setTimeout(() => {
+                                document.getElementById('overlay').style.display = 'block';
+                                document.getElementById('rematchDialog').style.display = 'block';
+                            }, 3000);
+                        } else {
+                            setTimeout(() => {
+                                document.getElementById('overlay').style.display = 'block';
+                                document.getElementById('rematchDialog').style.display = 'block';
+                            }, 1000);
+                        }
+                    } else {
+                        playerCards = data.your_cards;
+                        displayCards(data.your_cards);
+                    }
+                }, 1000);
+            }, 1000);
+        }
+
+        function formatResultMessage(result, p1Card, p2Card) {
+            if (result === 'STALEMATE') {
+                return `Stalemate between ${playerName}'s ${p1Card} and ${opponentName}'s ${p2Card}!`;
+            } else if (result === 'P1_WINS') {
+                if (p2Card === 'EMPRESS') {
+                    return `${playerName} wins the game with ${p1Card} against ${opponentName}'s ${p2Card}!`;
+                }
+                return `${playerName}'s ${p1Card} defeats ${opponentName}'s ${p2Card}!`;
+            } else if (result === 'P2_WINS') {
+                if (p1Card === 'EMPRESS') {
+                    return `${opponentName} wins the game with ${p2Card} against ${playerName}'s ${p1Card}!`;
+                }
+                return `${opponentName}'s ${p2Card} defeats ${playerName}'s ${p1Card}!`;
+            }
+        }
+
+        function handleRematch(accepted) {
+            const rematchButtons = document.querySelectorAll('.rematch-button');
+            rematchButtons.forEach(btn => btn.disabled = true);
+            
+            if (accepted) {
+                document.getElementById('rematchStatus').textContent = 'Waiting for opponent...';
+                ws.send(JSON.stringify({ type: 'REMATCH_REQUEST' }));
+            } else {
+                ws.send(JSON.stringify({ type: 'REMATCH_DECLINE' }));
+            }
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        function startArena() {
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('gameContainer').style.display = 'flex';
+
+            const nameInput = document.getElementById('playerName');
+            playerName = nameInput.value.trim() || 'Anonymous Player';
+            
+            // Store name in localStorage for persistence
+            localStorage.setItem('playerName', playerName);
+            
+            // Connect WebSocket
+            ws = new WebSocket(getWebSocketUrl('/ws/game'));
+
+            ws.onopen = () => {
+                // Send player name immediately after connection
+                ws.send(JSON.stringify({
+                    type: 'SET_NAME',
+                    name: playerName
+                }));
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                switch(data.type) {
+                    case 'GAME_START':
+                        opponentName = data.opponent_name;
+                        document.getElementById('status').textContent = `Game started! Playing against ${opponentName}`;
+                        document.getElementById('opponentName').textContent = `${opponentName}'s Play`;
+                        // Clear the rematch UI
+                        document.getElementById('overlay').style.display = 'none';
+                        document.getElementById('rematchDialog').style.display = 'none';
+                        document.getElementById('rematchStatus').textContent = '';
+                        const rematchButtons = document.querySelectorAll('.rematch-button');
+                        rematchButtons.forEach(btn => btn.disabled = false);
+
+                        // Reset the game state
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('gameBoard').style.display = 'block';
+                        playerNum = data.player_num;
+                        playerCards = data.cards;
+                        gameActive = true;
+                        displayInitialCards(data.cards);
+                        updateStatus(data.message || 'Game started! Select a card to play.');
+                        break;
+                    
+                    case 'OPPONENT_PLAYED':
+                        handleOpponentPlay();
+                        updateStatus(`${opponentName} has played their card!`);
+                        break;
+
+                    case 'ROUND_RESULT':
+                        const message = formatResultMessage(data.result, data.p1_card, data.p2_card);
+                        updateStatus(message);
+                        handleRoundResult(data);
+                        break;
+                    
+                    case 'OPPONENT_DISCONNECTED':
+                        gameActive = false;
+                        alert(`${opponentName} disconnected`);
+                        location.reload();
+                        break;
+                    
+                    case 'REMATCH_VOTE':
+                        document.getElementById('rematchStatus').textContent = data.message;
+                        break;
+
+                    case 'REMATCH_DECLINED':
+                        document.getElementById('rematchStatus').textContent = data.message;
+                        setTimeout(() => {
+                            location.reload();
+                        }, 2000);
+                        break;
+                }
+            };
+            
+            ws.onclose = function() {
+                gameActive = false;
+                alert('Connection lost');
+                location.reload();
+            };
+        }
+
+        function startVSBattle() {
+            document.getElementById('menu').style.display = 'none';
+            document.getElementById('vsBattleContainer').style.display = 'block';
+
+            const nameInput = document.getElementById('playerName');
+            playerName = nameInput.value.trim() || 'Anonymous Player';
+            
+            // Store name in localStorage for persistence
+            localStorage.setItem('playerName', playerName);
+            
+            // Connect WebSocket
+            ws = new WebSocket(getWebSocketUrl('/ws/vs_battle'));
+
+            ws.onopen = () => {
+                // Send player name immediately after connection
+                ws.send(JSON.stringify({
+                    type: 'SET_NAME',
+                    name: playerName
+                }));
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                
+                switch(data.type) {
+                    case 'BATTLE_CODE':
+                        document.getElementById('battleCode').textContent = data.code;
+                        break;
+                        
+                    case 'ERROR':
+                        document.getElementById('errorMessage').textContent = data.message;
+                        setTimeout(() => {
+                            document.getElementById('errorMessage').textContent = '';
+                        }, 3000);
+                        break;
+                        
+                    case 'GAME_START':
+                        opponentName = data.opponent_name;
+                        document.getElementById('status').textContent = `Game started! Playing against ${opponentName}`;
+                        document.getElementById('opponentName').textContent = `${opponentName}'s Play`;
+                        // Clear the rematch UI
+                        document.getElementById('overlay').style.display = 'none';
+                        document.getElementById('rematchDialog').style.display = 'none';
+                        document.getElementById('rematchStatus').textContent = '';
+                        const rematchButtons = document.querySelectorAll('.rematch-button');
+                        rematchButtons.forEach(btn => btn.disabled = false);
+
+                        // Reset the game state
+                        document.getElementById('vsBattleContainer').style.display = 'none';
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('gameContainer').style.display = 'flex';
+                        document.getElementById('gameBoard').style.display = 'block';
+                        playerNum = data.player_num;
+                        playerCards = data.cards;
+                        gameActive = true;
+                        displayInitialCards(data.cards);
+                        updateStatus(data.message || 'Game started! Select a card to play.');
+                        break;
+                        
+                    case 'OPPONENT_PLAYED':
+                        handleOpponentPlay();
+                        updateStatus(data.message);
+                        break;
+
+                    case 'ROUND_RESULT':
+                        const message = formatResultMessage(data.result, data.p1_card, data.p2_card);
+                        updateStatus(message);
+                        handleRoundResult(data);
+                        break;
+                    
+                    case 'OPPONENT_DISCONNECTED':
+                        gameActive = false;
+                        alert('Opponent disconnected');
+                        location.reload();
+                        break;
+                    
+                    case 'REMATCH_VOTE':
+                        document.getElementById('rematchStatus').textContent = data.message;
+                        break;
+
+                    case 'REMATCH_DECLINED':
+                        document.getElementById('rematchStatus').textContent = data.message;
+                        setTimeout(() => {
+                            location.reload();
+                        }, 2000);
+                        break;
+                }
+            };
+
+            ws.onclose = function() {
+                gameActive = false;
+                alert('Connection lost');
+                location.reload();
+            };
+        }
+        
+        function handleCodeInput(event) {
+            const code = event.target.value.toUpperCase();
+            if (code.length === 6) {
+                ws.send(JSON.stringify({
+                    type: 'JOIN_BATTLE',
+                    code: code
+                }));
+            }
+        }
+        
+        function backToMenu() {
+            if (ws) ws.close();
+            document.getElementById('vsBattleContainer').style.display = 'none';
+            document.getElementById('menu').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

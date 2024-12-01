@@ -1,0 +1,49 @@
+x-all: &all
+  DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-breathnet}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  kyoki-dev:
+    build:
+      context: ./
+      target: kyoki-dev
+    image: kyoki-dev:latest
+    container_name: kyoki-dev
+    restart: unless-stopped
+    ports:
+      - "1337:1337"
+    volumes:
+      - ./app:/home/player/kyoki/app
+    environment:
+      <<: [*all]
+    networks:
+      breathnet:
+        ipv4_address: 172.29.2.1
+  kyoki-prod:
+    build:
+      context: ./
+      target: kyoki-prod
+    image: kyoki:latest
+    container_name: kyoki
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "1337:1337"
+    environment:
+      <<: [*all]
+    networks:
+      breathnet:
+        ipv4_address: 172.29.2.1
+
+networks:
+  breathnet:
+    external: true
+    name: ${DOCKER_NETWORK_NAME:-breathnet}
