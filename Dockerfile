@@ -60,4 +60,4 @@ EXPOSE 1337
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:1337/health').read()"
 
-CMD ["fastapi", "run", "app/main.py", "--port", "1337", "--workers", "6", "--proxy-headers"]
+CMD ["fastapi", "run", "app/main.py", "--port", "1337", "--workers", "1", "--proxy-headers"]

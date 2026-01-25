@@ -1,8 +1,8 @@
 # Kyoki
 
-Kyoki is a two-player browser card game with fast rounds, simple rules, and a
-dramatic reveal. It runs on FastAPI with WebSocket matchmaking and a static
-front end.
+Kyoki is a two-player browser card game with fast rounds, simple rules, and a dramatic reveal. It is basically a japan-themed version of the original game "Coup de Grace", also known as "King, Knight, Assassin".
+
+It runs on FastAPI with WebSocket matchmaking and a static front end.
 
 ## Gameplay
 
@@ -24,6 +24,13 @@ front end.
 - FastAPI + Uvicorn for the server
 - WebSockets for realtime play
 - Jinja2 templates + vanilla HTML/CSS/JS
+
+## Operational Note
+
+Kyoki runs with a single FastAPI worker in production. Matchmaking and VS battle
+codes are kept in memory, as this is a small toy project rather than a
+commercial game. A single worker keeps the behavior predictable without adding
+external state.
 
 ## Local Development
 
