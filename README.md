@@ -1,5 +1,7 @@
 # Kyoki
 
+![Kyoki screenshot](./kyoki.png)
+
 Kyoki is a two-player browser card game with fast rounds, simple rules, and a dramatic reveal. It is basically a japan-themed version of the original game "Coup de Grace", also known as "King, Knight, Assassin".
 
 It runs on FastAPI with WebSocket matchmaking and a static front end.
