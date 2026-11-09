@@ -6,7 +6,6 @@ uid := $(shell id -u)
 gid := $(shell id -g)
 
 PROJECT_NAME := kyoki
-DOCKER_NETWORK_NAME ?= breathnet
 
 setup: build
 	@echo "Kyoki production setup complete!"

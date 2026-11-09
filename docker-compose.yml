@@ -1,7 +1,6 @@
 x-all: &all
-  DOCKER_NETWORK_NAME: ${DOCKER_NETWORK_NAME:-breathnet}
-  ENVIRONMENT: ${ENVIRONMENT:-development}
-  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_LEVEL: ${KYOKI_LOG_LEVEL:-INFO}
+  WEBSOCKET_IDLE_TIMEOUT: ${KYOKI_WEBSOCKET_IDLE_TIMEOUT:-90}
 
 services:
   kyoki-dev:
@@ -12,14 +11,11 @@ services:
     container_name: kyoki-dev
     restart: unless-stopped
     ports:
-      - "1337:1337"
+      - "${KYOKI_DEV_PORT:-1337}:1337"
     volumes:
       - ./app:/home/player/kyoki/app
     environment:
       <<: [*all]
-    networks:
-      breathnet:
-        ipv4_address: 172.29.2.1
   kyoki-prod:
     build:
       context: ./
@@ -35,15 +31,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Loopback only: production is meant to sit behind a reverse proxy.
     ports:
-      - "1337:1337"
+      - "127.0.0.1:${KYOKI_PORT:-1337}:1337"
     environment:
       <<: [*all]
-    networks:
-      breathnet:
-        ipv4_address: 172.29.2.1
-
-networks:
-  breathnet:
-    external: true
-    name: ${DOCKER_NETWORK_NAME:-breathnet}
