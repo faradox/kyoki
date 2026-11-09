@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bullseye AS kyoki-base
+FROM python:3.11-slim-bookworm AS kyoki-base
 
 ARG UID=1000
 ARG GID=1000
@@ -35,7 +35,7 @@ FROM kyoki-base AS kyoki-dev
 
 CMD ["python3", "-m", "uvicorn", "app.main:app", "--lifespan", "on", "--host", "0.0.0.0", "--port", "1337", "--reload"]
 
-FROM python:3.11-slim-bullseye AS kyoki-prod
+FROM python:3.11-slim-bookworm AS kyoki-prod
 
 ARG UID=1000
 ARG GID=1000
